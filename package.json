@@ -1,0 +1,69 @@
+{
+  "name": "@theglitchking/babel-fish",
+  "version": "2.8.0",
+  "description": "Gives your AI coding assistant instant, accurate knowledge of every route, model, service, feature, and infrastructure element in your codebase.",
+  "type": "module",
+  "bin": {
+    "babel-fish": "bin/babel-fish.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/link-skills.js",
+    "test": "python3 .claude/project-map/test_generate.py && python3 .claude/project-map/test_mine_sessions.py && python3 .claude/project-map/test_grader.py && python3 .claude/project-map/test_context_check.py && python3 .claude/project-map/test_structure_check.py"
+  },
+  "files": [
+    "bin/",
+    "commands/",
+    "hooks/",
+    "scripts/link-skills.js",
+    ".claude-plugin/",
+    ".claude/install.sh",
+    ".claude/scripts/",
+    ".claude/templates/",
+    ".claude/project-map/generate.py",
+    ".claude/project-map/grader.py",
+    ".claude/project-map/mine-sessions.py",
+    ".claude/project-map/context-check.py",
+    ".claude/project-map/structure-check.py",
+    ".claude/project-map/test_generate.py",
+    ".claude/project-map/test_mine_sessions.py",
+    ".claude/project-map/test_grader.py",
+    ".claude/project-map/test_context_check.py",
+    ".claude/project-map/test_structure_check.py",
+    ".githooks/",
+    "skills/",
+    "install.sh",
+    "./checksums.json",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "codebase-context",
+    "project-map",
+    "vocabulary",
+    "developer-skill",
+    "ai",
+    "llm",
+    "ai-coding",
+    "context-management"
+  ],
+  "author": "TheGlitchKing",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TheGlitchKing/babel-fish.git"
+  },
+  "homepage": "https://github.com/TheGlitchKing/babel-fish",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@theglitchking/claude-plugin-runtime": "^0.1.1",
+    "commander": "^14.0.0"
+  }
+}

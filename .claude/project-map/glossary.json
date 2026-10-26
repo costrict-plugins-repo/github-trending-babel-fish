@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-10-25T19:19:13Z",
+  "source": ".claude/project-map/sections/01-vocabulary.md",
+  "project": "babel-fish",
+  "entry_count": 14,
+  "entries": [
+    {
+      "key": "/policy",
+      "canonical_path": "commands/policy.md",
+      "section": "command",
+      "description": "Get or set the babel-fish update policy (auto | nudge | off)"
+    },
+    {
+      "key": "/relink",
+      "canonical_path": "commands/relink.md",
+      "section": "command",
+      "description": "Re-run the skill linker — refresh symlinks from node_modules into .claude/skills/"
+    },
+    {
+      "key": "/status",
+      "canonical_path": "commands/status.md",
+      "section": "command",
+      "description": "Show installed version, latest available version, current update policy, and hook registration state"
+    },
+    {
+      "key": "/update",
+      "canonical_path": "commands/update.md",
+      "section": "command",
+      "description": "Update babel-fish to the latest version (runs npm update + re-links skills)"
+    },
+    {
+      "key": "babel fish developer skill",
+      "canonical_path": "skills/babel-fish-developer-skill/SKILL.md",
+      "section": "skill",
+      "description": "Full-stack developer context for any project with Babel Fish installed. Provides instant access to project map, vocabula"
+    },
+    {
+      "key": "babel-fish-developer-skill",
+      "canonical_path": "skills/babel-fish-developer-skill/SKILL.md",
+      "section": "skill",
+      "description": "Full-stack developer context for any project with Babel Fish installed. Provides instant access to project map, vocabula"
+    },
+    {
+      "key": "policy",
+      "canonical_path": "commands/policy.md",
+      "section": "command",
+      "description": "Get or set the babel-fish update policy (auto | nudge | off)"
+    },
+    {
+      "key": "relink",
+      "canonical_path": "commands/relink.md",
+      "section": "command",
+      "description": "Re-run the skill linker — refresh symlinks from node_modules into .claude/skills/"
+    },
+    {
+      "key": "semantic first",
+      "canonical_path": ".claude/skills/semantic-first/SKILL.md",
+      "section": "skill",
+      "description": "Route documentation lookups, internal procedure questions, repo architectural/vocabulary/convention questions, and resea"
+    },
+    {
+      "key": "semantic-first",
+      "canonical_path": ".claude/skills/semantic-first/SKILL.md",
+      "section": "skill",
+      "description": "Route documentation lookups, internal procedure questions, repo architectural/vocabulary/convention questions, and resea"
+    },
+    {
+      "key": "status",
+      "canonical_path": "commands/status.md",
+      "section": "command",
+      "description": "Show installed version, latest available version, current update policy, and hook registration state"
+    },
+    {
+      "key": "structure bootstrap",
+      "canonical_path": "skills/structure-bootstrap/SKILL.md",
+      "section": "skill",
+      "description": "Set up, adopt or change a repo's structure manifest (.claude/structure.toml) — the approved folders, what each may hold,"
+    },
+    {
+      "key": "structure-bootstrap",
+      "canonical_path": "skills/structure-bootstrap/SKILL.md",
+      "section": "skill",
+      "description": "Set up, adopt or change a repo's structure manifest (.claude/structure.toml) — the approved folders, what each may hold,"
+    },
+    {
+      "key": "update",
+      "canonical_path": "commands/update.md",
+      "section": "command",
+      "description": "Update babel-fish to the latest version (runs npm update + re-links skills)"
+    }
+  ]
+}

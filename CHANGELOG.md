@@ -1,0 +1,619 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [2.8.0] - 2026-10-25
+
+### Added
+
+- **`docker-volumes.md` standards rule on init.** Named volumes for anything a
+  container stores; no anonymous volumes; a bind mount only when a host path is
+  required (entrypoint or init scripts, host-provided config or certificates, dev
+  live reload, sockets), each commented and read-only where possible; never
+  `docker compose down -v`, `docker volume rm` or `prune` without permission.
+  Written once like the other standards rules, and skipped when the repo already
+  has a rule about docker, containers or volumes. Docker files go under `infra/`:
+  compose files in `infra/compose/`, host files a container needs in
+  `infra/docker/<service>/`.
+- **`repo-structure.md` standards rule on init.** Decide where a file belongs
+  before creating it. With a `.claude/structure.toml`, follow it; without one,
+  suggest setting it up (`structure-check.py --detect`, then the
+  `structure-bootstrap` skill) and use the default layout for anything the repo
+  has no place for. No catch-all folders.
+- **`infra/docker/` in every structure layout** (single, monorepo, multi-repo):
+  entrypoint and init scripts, mounted config and certs, per-service Dockerfiles,
+  one folder per service. `infra/compose/` holds only YAML, so these had no home.
+### Changed
+
+- **`dependency-versions.md` and `docker-volumes.md` are path-scoped.** Their
+  `paths:` frontmatter makes Claude Code load them only when Claude works with a
+  manifest, lockfile-adjacent version file, Dockerfile, compose file or CI workflow,
+  instead of every session.
+- **The five standards rules are trimmed** to the rules themselves (about 9.1k →
+  6.2k chars, of which 3.7k now loads every session). Nothing a rule required was
+  dropped; repeated sections and explanations were.
+- **`context-check.py` leaves path-scoped rules out of the budget.** It lists them
+  separately and still checks their pointers. Before, it counted every rule as
+  loaded at launch.
+
+## [2.7.1] - 2026-10-23
+
+### Fixed
+
+- **The installed pre-commit hook now stages `glossary.json` (#29).** It
+  regenerated the glossary on every map rebuild but left it out of the commit, so
+  repos carried a modified `glossary.json` after each one and the committed copy
+  went stale, against what the glossary contract promises. Re-running the
+  installer adds the file to an existing hook's `git add` line.
+
+## [2.7.0] - 2026-10-22
+
+### Security
+
+- **The project map no longer copies secrets into committed files.** Section 03
+  printed values from the real `.env` whenever the key name looked harmless, so
+  `DATABASE_URL=postgres://user:pass@…`, `*_DSN`, `*_WEBHOOK_URL` and keys such as
+  `STRIPE_SK` landed in `03-environment.md` in full; nginx `proxy_pass` URLs with
+  credentials landed in `14-reverse-proxy.md`. `redact_secrets()` existed but was
+  never called. Now:
+  - Section 03 lists **variable names only, never values**, from env files (the
+    root ones plus `structure.toml`'s `env_file` location) **and** the code that
+    reads them (`process.env`, `import.meta.env`, `os.environ`, `os.getenv`,
+    `os.Getenv`), so it is populated even without an env file.
+  - Every map write goes through `redact_secrets()`: section files,
+    `PROJECT_MAP.md` and glossary descriptions. The pattern now also covers
+    URL credentials, Stripe / OpenAI-style / GitHub / Slack / AWS / Google keys
+    and private-key blocks.
+  - The grader uses the same pattern (a test pins the two equal), scans
+    `glossary.json`, and no longer quotes the matched text into the committed
+    install report. The old grader scored the leaking map 100% on Secret Safety.
+
+  Regenerating removes leaked values from the map, but **not from git history**.
+  A secret that was ever committed in a map section must be rotated.
+
+### Added
+
+- **Standards rules on init.** The installer writes `git-workflow.md`,
+  `secrets-management.md` and `dependency-versions.md` into `.claude/rules/`:
+  - branch first, PR, wait for approval before merging;
+  - no hardcoded secrets or URLs, all in `.env`;
+  - latest stable / LTS versions unless a failure is recorded.
+
+  Each is written once and never overwritten, and is skipped when the repo
+  already has a rule on that topic. The default branch is filled in from
+  `origin/HEAD` (fallback `main`, or `master` when that is the only branch).
+
+## [2.6.0] - 2026-09-30
+
+### Added
+
+- **`structure-check.py`: files land where the repo says they go**
+  ([#22](https://github.com/the-glitch-kingdom/babel-fish/issues/22)). The project map
+  describes where things *are*. The new, opt-in `.claude/structure.toml` says where
+  they *should go*, and the check enforces it at commit time and in CI.
+
+  **Manifest.** Each approved folder declares a `purpose`, optional `holds` globs and
+  a lifecycle status: `planned` (approved, may be created), `active`, or `deprecated`
+  (new files blocked while existing ones move out). The manifest also lists
+  `root_files`, an `exceptions` baseline so adopting the check blocks nothing (only
+  *new* violations fail), and `[[repo]]` pointers for multi-repo setups. Each pointed-to
+  repo runs its own babel-fish; nothing crosses repos. The mode is `single`,
+  `monorepo` or `multi-repo`.
+
+  **Environment lifecycle.** Declared `[[environment]]`s (`target` local or cloud,
+  `promotes_to`, `mirrors`) enforce dev → stg → prod: undeclared environment folders
+  fail, stg must hold the same files as prod, local-only files (Compose, seeds, certs)
+  stay out of cloud environments and deploy config stays out of local ones,
+  environment folders hold deltas only (an identical copy of a shared file fails),
+  migrations are never per-environment, and per-app environment folders outside
+  `env_roots` fail. A tracked `.env` fails in every mode. Only an exact-path
+  exception, added by hand for a committed test fixture, can allow one.
+
+  **One `.env`, as close as the structure allows.** A single committed template
+  (`env_file`, default `infra/env/.env.example`) holds every key for every
+  environment and app; the one real `.env` sits beside it, gitignored; stg/prod values
+  come from the secret manager. Any other template (per-app, per-environment,
+  `.env.sample`, `example.env`) fails with "merge its keys into env_file". A real
+  env file that git would commit fails before it is staged, and scattered local ones
+  warn. Bootstrap keeps an existing single template where it is and puts extra
+  templates in the backlog.
+
+  **Detection and adoption.** `--detect [--json]` reports facts: best-guess mode with
+  reasons, environments seen, top-level folders, sibling repos, and whether the repo is
+  new. `--bootstrap [--layout single|monorepo|multi-repo]` writes a starting manifest
+  and never overwrites an existing one. Uncovered top-level folders become their own
+  entries, leftover violations seed `exceptions` as exact paths, and tracked secrets
+  are never seeded. With
+  no manifest, running the script explains the options and exits 0. Flags for commit
+  and CI: `--staged` and `--since REF`.
+
+  **`structure-bootstrap` skill.** It makes the judgment calls the script can't:
+  folder purposes and `holds` from real contents, which layout fits, planning a new
+  repo from a project description, recipes for adding and retiring folders, apps and
+  environments, and, only on request, for Flow C, or for a new repo, a rules file and
+  a procedure doc.
+
+  The pre-commit hook gets a `Structure Check` block (own marker, so re-running
+  `bash .claude/install.sh` adds it to existing hooks). It runs only when the manifest
+  exists. The installer copies the script and the layouts and never touches
+  `structure.toml`. On Python < 3.11 (no `tomllib`) the check prints a readable warning
+  and passes; the rest of babel-fish still runs on 3.8. When a manifest exists,
+  `PROJECT_MAP.md` gets a one-line pointer to it plus the related repos.
+
+## [2.5.0] - 2026-09-25
+
+### Added
+
+- **`context-check.py` — keeps auto-loaded context small and its pointers live**
+  ([#20](https://github.com/TheGlitchKing/babel-fish/issues/20)). `CLAUDE.md` and
+  every `.claude/rules/*.md` load into every session; past Claude Code's 150k-char
+  limit rules stop binding, and nothing reports it. glitch-stock-trading-rig had
+  reached 225.6k before forking `generate.py` to enforce a budget.
+
+  The new script checks three things. **Budget:** total chars under `--budget`
+  (default 60,000). **Pointers:** every `` → `path` ``, backticked `.documentation/`
+  path and relative markdown link resolves. hewtd link-checks only inside
+  `.documentation/`, so a renamed doc used to break a rule's pointer silently.
+  **Rule lines** (opt-in, `--map-style`): each rule bullet reads
+  `` - ALWAYS|NEVER <rule> — <why> → `doc` ``. That form is one repo's convention,
+  and the hook ships to every install, so it is off by default.
+
+  The pre-commit hook runs it when `CLAUDE.md` or `.claude/rules/` is staged, and a
+  failure blocks the commit. It is a separate script rather than part of
+  `generate.py`: the hook runs `generate.py` only for code changes, `.claude/` is
+  outside the watch set, and the hook discards `generate.py`'s errors. The block
+  has its own marker, so re-running `bash .claude/install.sh` adds it to hooks
+  installed by older versions.
+
+  Registry drift (item 4 of #20) stays in the downstream fork; babel-fish has no
+  tool registry.
+
+### Fixed
+
+- **This repo's pre-commit hook never ran.** Both `.githooks/` files were
+  committed `100644`, and git skips a non-executable hook without a word, so no
+  clone ever regenerated its map on commit. Both are `100755` now, and
+  `test_hooks_are_committed_executable` holds them there.
+
+  57 tests pass across four suites. Each context check was mutation-tested: breaking
+  it fails at least one test. A fresh install and an upgrade over a pre-2.5.0 hook
+  were both run end to end.
+
+## [2.4.3] - 2026-09-05
+
+### Fixed
+
+- **`npm test` overwrote the map it was testing, and still reported every test
+  passing** ([#18](https://github.com/TheGlitchKing/babel-fish/issues/18)). A run
+  rewrote the working tree's `.claude/project-map/glossary.json` with fixture
+  data — 10 entries down to 1 — and printed a clean pass. Caught only by
+  diffing before a commit during the 2.4.2 release.
+
+  `generate.py` and `mine-sessions.py` bind `MAP_DIR`, `SECTIONS_DIR`,
+  `CHECKSUMS`, `LEARNED_VOC` and `GLOSSARY` at import time from `__file__`, and
+  rebind them only inside `configure_paths()`. Both test loaders assigned
+  `mod.PROJECT_ROOT` and stopped there, so every output path stayed aimed at the
+  real repo while the tests believed they were in a temp fixture; whichever test
+  called `write_glossary()` last won. This is the [#15](https://github.com/TheGlitchKing/babel-fish/issues/15)
+  defect class — writes escaping to the script's own directory — surviving in
+  the harness after being fixed in the scripts themselves.
+
+  Both loaders now call `configure_paths(fixture_root)`.
+  `test_glossary_survives_foreign_project_root` depended on the leak (it needs
+  `SECTIONS_DIR` outside `PROJECT_ROOT`, which used to arrive for free) and now
+  recreates that mismatch explicitly, so it still covers the `ValueError` from
+  `relative_to()` without writing outside its fixture — verified by mutation:
+  deleting the `try`/`except` in `_relative_source()` fails that test and only
+  that one. `test_grader.py` is deliberately untouched; its loader assigns a map
+  dir rather than a project root.
+
+  38 tests pass across the three suites, and a full run now leaves the tree
+  clean.
+
+## [2.4.2] - 2026-09-05
+
+### Fixed
+
+- **`update` exited 0 without updating anything**
+  ([#17](https://github.com/TheGlitchKing/babel-fish/issues/17)). The defect was
+  in `@theglitchking/claude-plugin-runtime`, which resolved installation state
+  only from `<cwd>/node_modules` and `CLAUDE_PLUGIN_ROOT`. A marketplace-plugin
+  install — the documented, supported way to install babel-fish — matched
+  neither, so `babel-fish update` printed `Current: (not installed)` and
+  `Now: (not installed)`, ran an `npm update` that touched nothing, and reported
+  success. A stale plugin stayed stale and nobody found out.
+
+  `status` shared the blind spot, and contradicted itself in the process:
+  `installed: (not installed)` against a CLI whose `--version` printed 2.4.1,
+  and `hook: not in .claude/settings.json` while the SessionStart hook was
+  demonstrably firing — a marketplace plugin registers its hook through its own
+  `hooks/hooks.json` and needs nothing in project settings.
+
+  Fixed upstream in runtime 0.1.1, which this release requires (`^0.1.1`, raised
+  from `^0.1.0` so the range itself forces re-resolution past a lock pinned to
+  0.1.0). `update` now exits non-zero and names every path it checked; when the
+  copy is plugin-installed it says npm cannot update that and points at
+  `/plugin`. Nothing in babel-fish's own source changed.
+
+## [2.4.1] - 2026-09-04
+
+### Fixed
+
+- **`--project-root` changed only the read root**
+  ([#15](https://github.com/TheGlitchKing/babel-fish/issues/15)). All three
+  scripts kept writing to the directory the script itself lives in, so pointing
+  the flag at another project silently corrupted the script's own map instead of
+  mapping the target:
+
+  - `generate.py` wrote the map into its own directory — the target got nothing,
+    and the script repo's `sections/`, `glossary.json` and `checksums.json` were
+    overwritten, while the run reported success.
+  - `grader.py` graded its **own** sections while validating vocabulary paths
+    against the **target's** filesystem, producing a confident but meaningless
+    score (0% vocabulary accuracy, 77% FAIL). The nastiest of the three: it
+    neither crashed nor produced nothing.
+  - `mine-sessions.py` mined the target's transcripts and wrote the aliases into
+    its own `learned-vocabulary.json` and `.mine-cursor.json`.
+
+  Each script gained `configure_paths()`, called from `main()` after argument
+  parsing, which relocates every output under `<project-root>/.claude/project-map/`.
+  Module-level defaults are unchanged, so the common case and the test suites
+  are unaffected.
+
+  Not reachable during install: `.claude/install.sh` runs the copied scripts
+  inside the target, where `SCRIPT_DIR` and `--project-root` coincide. The
+  pre-commit hook and `babel-fish regen` / `grade` pass no `--project-root`.
+  Verified by a full install after the change.
+
+## [2.4.0] - 2026-09-04
+
+### Added
+
+- **`glossary.json` — a structured vocabulary artifact for machine consumers**
+  ([#10](https://github.com/TheGlitchKing/babel-fish/issues/10)). Written to
+  `.claude/project-map/glossary.json` on every map build and staged by the
+  pre-commit hook. Consumers read this instead of parsing `01-vocabulary.md`.
+
+  The markdown was never a good parsing target: its `Notes` column mixes
+  descriptions with metadata, and pipe-escaping leaks into values — this repo's
+  own output contained `(auto \| nudge \| off)`. The JSON carries the real
+  string.
+
+### Fixed
+
+- **The glossary contract described a format babel-fish has never emitted.**
+  `glossary-contract.md` v1.0 specified bullet entries
+  (`- **key** → \`path\` — desc`) and stated that non-conforming bullets are
+  ignored; the generator has always written a markdown table. A consumer built
+  strictly to that spec would extract **zero entries**. Rewritten (v2.0) around
+  `glossary.json`, with the markdown documented as human-facing output that is
+  not parsed.
+
+- **Both sides of that contract documented a directory neither produces.** The
+  contract, the integration guide and the README referred to `.babel-fish/`;
+  babel-fish writes `.claude/project-map/`. The same error is mirrored in
+  semantic-memory's `smart-middle-activation.md` and `corpora-json.md`, where it
+  would have made Phase 3.1.0 find nothing — silently. Corrected here and filed
+  there as
+  [semantic-memory#28](https://github.com/the-glitch-kingdom/semantic-memory/issues/28).
+
+- **`--project-root` crashed the generator.** `write_glossary()` computed the
+  source path with `SECTIONS_DIR.relative_to(PROJECT_ROOT)`, but `SECTIONS_DIR`
+  is bound to the script's own location, so pointing `--project-root` elsewhere
+  raised `ValueError`. Found by a test written for the new artifact.
+
+- `integration-with-semantic-memory.md` no longer describes a setup that does
+  not exist. semantic-memory 1.5.1 ships no `translate` verbs, no `project-map`
+  corpus and no glossary reader; the guide now says so at the top instead of
+  giving instructions for it.
+
+### Note
+
+The consumer is unbuilt, so nothing was pinned to the old format. Issue #10
+originally advised caution about "a breaking change to a format a downstream
+consumer pins to" — checking semantic-memory's source showed zero
+`translate`/`reverse_translate`/`list_vocabulary` verbs in its 164-entry tool
+surface and no `glossary` string in `src/`. That freed the format choice
+entirely.
+
+## [2.3.0] - 2026-09-04
+
+### Fixed
+
+- **The grader could not tell a useless map from a good one**
+  ([#9](https://github.com/TheGlitchKing/babel-fish/issues/9)). All seven graded
+  categories measure *form*, and `generate.py` always emits well-formed output,
+  so the completely empty pre-2.1.0 map scored **97.0% PASS** — identical
+  category-for-category to the populated map. Verified against the real artifact
+  recovered from git, not a reconstruction.
+
+  Rather than reweighting, usefulness is now reported as **warnings that never
+  touch the score**, so no existing install flips from pass to fail:
+
+  - `generate.py` records *inputs* beside outputs (`### Source files scanned`).
+    "0 routes" cannot be judged alone; "0 routes from 47 Python files" can. The
+    counts already existed in `main()` and were being discarded.
+  - An empty vocabulary warns — that is what babel-fish is for, so zero entries
+    means the map gave you nothing. This fires on the real pre-2.1.0 map and is
+    the signal that would have surfaced #6 at install time.
+  - Ten or more source files scanned with nothing extracted warns separately,
+    catching a parser that does not fit the stack. Small repos stay quiet.
+  - A populated-sections count prints as an explicit diagnostic.
+
+- **The greenfield branch in `grade_vocabulary_accuracy()` was unreachable.**
+  `build_vocabulary_section()` emitted a placeholder *table row* for an empty
+  vocabulary, which parsed as a valid entry whose blank location counts as
+  neutral — scoring 1/1 = 100% and stepping straight over the `if not rows`
+  branch written to award 85%. It now emits prose.
+
+- **`or '_No' in content` matched too much.** Any italicised word beginning
+  "No" (`_Note`, `_Nothing`) anywhere in `12-import-chains.md` scored a
+  populated section as an acceptable empty one at a flat 80%.
+
+### Fixed (packaging)
+
+- **The npm tarball shipped local and generated files.** `files` listed
+  `.claude/` wholesale, and npm does **not** honour `.gitignore` for paths named
+  there — so every release carried this repo's own generated project map,
+  another plugin's local state (`.claude/.semantic-memory/`), five plugins'
+  update caches, ~150 kB of `__pycache__` bytecode, and
+  `.claude/settings.local.json`. `files` now lists only what
+  `.claude/install.sh` actually copies plus the test suites. Also anchored
+  `checksums.json` to `./checksums.json`: a bare filename in `files` globs at
+  any depth, so it was matching `.claude/project-map/checksums.json` too.
+
+  Tarball: 76 files / 140.9 kB → **33 files / 65.6 kB**. Verified by installing
+  from the packed tarball into a scratch project.
+
+### Added
+
+- 9 tests in `test_grader.py`, 7 of which fail against the previous code.
+  `npm test` now runs three suites (8 + 12 + 9 = 29).
+- `architecture/grading-semantics.md` — what the score means, what it
+  deliberately omits, and the measurements behind that choice.
+
+### Not done, deliberately
+
+Issue #9 originally proposed scoring section completeness on populated content.
+Measured and withdrawn: it fails the *correct* map too (85.2%), because 19
+sections is aspirational — a plugin repo can never populate routes, models,
+schemas or migrations, so `populated/19` tops out near 10/19 on a perfect map.
+It would fail every legitimately sparse repo, a worse failure than the one it
+fixes. The 90% threshold and the category weights are unchanged.
+
+## [2.2.0] - 2026-09-04
+
+### Fixed
+
+- **Session vocabulary mining has never worked**
+  ([#7](https://github.com/TheGlitchKing/babel-fish/issues/7)). The issue
+  reported that `mine-sessions.py` has no caller. It also had six defects, each
+  sufficient on its own to make it extract nothing — it exited 0 reporting
+  "Extracted 0 alias(es)" for its entire existence, which is why they survived.
+
+  1. **Wrong JSONL nesting.** Read `msg['content']`; Claude Code writes
+     `msg['message']['content']`. Measured on a real transcript: 0 vs 157
+     `tool_use` blocks, 0 vs 14 user messages. Both halves of the pairing were
+     empty.
+  2. **Invalid regex quantifiers.** `{2,40?}` and `{2,30?}` are malformed brace
+     expressions that Python silently treats as literals, so both patterns
+     compiled and matched nothing — including the one implementing this
+     feature's own README example, "the numbers page".
+  3. **Tool results collide with user turns.** Results arrive as `role: "user"`
+     (167 of 181 in one transcript), so the pairing window closed on the
+     assistant's own output.
+  4. **Bash file access was invisible.** A real session ran 148 Bash calls
+     against 2 Read and 2 Edit; only 4 of 157 tool calls qualified.
+  5. **Injected text was mined as user speech.** Skill and slash-command bodies
+     arrive in the user slot, and taught the miner aliases from the injected
+     documents themselves (`block_index_edits`, `refactor authentication
+     system` — the latter from a skill's worked example). Now skipped via
+     `isMeta` / `isSidechain`.
+  6. **Session discovery never matched exactly.** `.lstrip('-')` stripped the
+     leading separator that `~/.claude/projects/` slugs keep, so every lookup
+     fell through to a fuzzy substring match that also ran additively — and a
+     name like `kentro` matches four unrelated projects, whose aliases would be
+     attributed to this repo.
+
+  Verified against 220 MB of transcripts for a real product repo: 0 aliases
+  before, 170 after, reading like genuine domain vocabulary (`sign-up` →
+  `payments.py`, `pricing` → `subscription_gate.py`).
+
+- **`README.md` claimed mining happened "automatically".** It did not — nothing
+  called the miner. Now true, and documented with its two real caveats.
+
+### Added
+
+- **Mining runs at session start.** `hooks/session-start.js` spawns the miner
+  detached with output discarded and nothing awaited; it cannot delay or fail a
+  session, and no-ops when Python or the script is absent.
+- **Incremental cursor** (`.mine-cursor.json`). Not only a cost guard:
+  `merge_learned()` adds scores, so re-mining a counted transcript inflates it
+  without bound. `--all` forces a full re-mine.
+- 12 tests in `test_mine_sessions.py`, one per defect plus an end-to-end mine.
+  All 12 fail against the previous miner. `npm test` runs both suites (20).
+- Docs: `architecture/session-vocabulary-mining.md` (including the transcript
+  shape assumptions the miner depends on but does not control) and
+  `troubleshooting/learned-vocabulary-empty.md`.
+
+### Known issues
+
+- Aliases land one session late: SessionStart mines transcripts through the
+  previous session, since the current one isn't written yet.
+- Phrase quality is heuristic. Filtering drops clause-like candidates, but a
+  quoted string in a user message can still become an alias.
+
+## [2.1.1] - 2026-09-04
+
+### Fixed
+
+- **Section 19 listed generated hit-em-with-the-docs reports.**
+  `.documentation/reports/` holds timestamped audit output, so every `hewtd
+  maintain` wrote a new filename, which changed the doc path set, moved the
+  checksum and forced a full map regeneration — the exact churn the path-only
+  doc hash exists to prevent, reintroduced through a directory that was
+  gitignored but never excluded from the doc walk. `reports` joins `archive` in
+  `DOC_SKIP_DIRS`. Regression test added; it fails without the fix.
+
+## [2.1.0] - 2026-09-04
+
+### Fixed
+
+- **Plugin and skill repositories no longer generate an empty project map**
+  ([#6](https://github.com/TheGlitchKing/babel-fish/issues/6)). Run babel-fish
+  against a repo of markdown skills, slash commands and bash scripts and every
+  one of the 19 sections came back a "none detected" stub. Two causes, both
+  fixed:
+
+  - The checksum was blind to the files that define such a repo.
+    `collect_watched_files()` returned 11 files for babel-fish's own repository,
+    with no `.md` and no `.sh`, so editing a `SKILL.md` left the checksum
+    bit-identical and `is_unchanged()` exited before parsing. Skill and command
+    manifests are now matched by path glob (`skills/*/SKILL.md`,
+    `commands/*.md`), and `.sh` joins `WATCHED_EXTENSIONS`.
+  - Nothing read those manifests. `SkillParser` now feeds skill and command
+    frontmatter into section 01 (vocabulary) and section 10 (tools) — the two
+    sections they already fit. No new sections, no renumbering.
+
+  Measured on this repository: 0 vocabulary entries to 10, sections 2,589 bytes
+  to 4,389. On `hit-em-with-the-docs`, an unrelated plugin repo: 0 to 30.
+
+- **Section 19 missed `.documentation/` trees and went stale silently.** Doc
+  directories were never watched, so adding a document did not move the
+  checksum and the pointer list rotted until an unrelated source file happened
+  to change. Doc paths are now hashed **without** mtime: adding, renaming or
+  deleting a document refreshes section 19, while editing one does not force a
+  full regeneration. `.documentation` joins the doc directories, and generated
+  navigation (`INDEX.md`, `REGISTRY.md`) plus `archive/` are excluded — without
+  that, a 15-domain tree contributes 32 nav files and crowds every real
+  document out of the 30-entry cap.
+
+- **`checksums.json` was stale**, so the documented curl installer aborted with
+  `CHECKSUM MISMATCH` for everyone. `.claude/install.sh` was edited in `da8d2f7`
+  without regenerating the manifest.
+
+### Added
+
+- First tests in the repository: `npm test` runs an 8-test regression suite over
+  a fixture repo shaped like #6. Stdlib `assert`, no framework. Verified to fail
+  7/8 against the pre-fix generator rather than merely passing after it.
+- `.documentation/` docs for the watch set, the skill parser contract, and an
+  empty/stale map troubleshooting guide; operational runbook gained the
+  corresponding gotchas.
+
+### Known issues
+
+- `grader.py` scores a completely empty map at 97.0% PASS, the same as a fully
+  populated one — "Vocabulary Accuracy" is 100% on zero entries because
+  0/0 = 100. It measures well-formedness, not usefulness, and must not be used
+  to confirm an extractor fix. Left unchanged here: adding a floor would fail
+  existing installs that currently pass.
+- `01-vocabulary.md` is emitted as a markdown table, while
+  `.documentation/api/glossary-contract.md` specifies `- **key** → \`path\``
+  bullets. A consumer implemented strictly to that contract extracts zero
+  entries. Predates this release; which side moves is undecided.
+
+## [2.0.3] - 2026-06-08
+
+### Fixed
+
+- Release-metadata consistency: the 2.0.2 npm payload shipped with
+  `.claude-plugin/plugin.json` still at version 2.0.0 (the manifest bump landed
+  after the 2.0.2 publish), so Claude Code read the installed plugin as 2.0.0
+  and `claude plugin update` never advanced. 2.0.3 bumps `package.json`,
+  `.claude-plugin/plugin.json`, and `.claude-plugin/marketplace.json` together
+  before publishing so the plugin version resolves correctly. No code change
+  from 2.0.2.
+
+## [2.0.2] - 2026-06-08
+
+### Fixed
+
+- Internal lint cleanup in `generate.py`: removed an unused `os` import and
+  two unused local variables, and dropped the `f` prefix from five
+  placeholder-less f-strings (ruff F401/F841/F541). No behavior change.
+
+## [2.0.1] - 2026-06-08
+
+### Fixed
+
+- **Frontend feature scanner now detects monorepo layouts.** `FrontendScanner`
+  previously looked for `features/`, `pages/`, `views/`, etc. only at the repo
+  root or under a top-level `src/`. Projects that keep the frontend in a
+  subpackage (e.g. `frontend/src/features/`, the common React/Vite plus Python
+  backend split) were reported as "No frontend feature directories detected,"
+  leaving project-map sections 09 (Frontend Features) and 13 (Frontend to
+  Backend Map) empty. The scanner now searches `frontend/`, `web/`, `client/`,
+  and `ui/` (each with an optional `src/`) in addition to the repo root and
+  `src/`, dedupes by resolved path, and only emits directories that actually
+  contain `.jsx`/`.tsx` files so a backend package named `app/` is not
+  misclassified as a frontend feature.
+
+## [2.0.0] — 2026-04-19
+
+### Breaking changes
+
+- **Package is now ESM (`"type": "module"`).** If anything imports from
+  `@theglitchking/babel-fish` via `require()` (the package has no `main`,
+  so this is unlikely), you'll need to switch to `import`. The CLI
+  (`npx @theglitchking/babel-fish <cmd>`) is unaffected.
+- **Node >= 20** (was >= 16). Matches the rest of the Glitch Kingdom
+  plugin ecosystem and the runtime.
+- CLI is now `commander`-based. Subcommands, flags, and arguments
+  behave the same as before — `init`, `dry-run`, `regen`, `grade`, and
+  `help` all work identically — but you now also get `--help` and
+  `--version` on every subcommand.
+
+### Migration
+
+No user-facing code changes required — just:
+
+```bash
+npm install @theglitchking/babel-fish@latest
+
+# Or if you used the curl|bash installer (unaffected):
+curl -sSL https://raw.githubusercontent.com/TheGlitchKing/babel-fish/main/install.sh | bash
+```
+
+Your existing `.claude/project-map/` infrastructure and `.githooks/pre-commit`
+keep working — this release doesn't touch them. The only net-new files
+added to your project are `.claude/babel-fish.json` (update policy —
+defaults to `nudge`) and a SessionStart hook entry in
+`.claude/settings.json` (only if that file exists and the plugin
+marketplace version isn't already handling it).
+
+### Added
+
+- Adopts
+  [`@theglitchking/claude-plugin-runtime`](https://github.com/TheGlitchKing/claude-plugin-runtime)
+  (`^0.1.0`) for standardized update management and postinstall wiring.
+- **Postinstall** (`scripts/link-skills.js`) symlinks
+  `skills/babel-fish-developer-skill/` into `<project>/.claude/skills/`
+  so Claude Code picks it up automatically. If you later run
+  `npx @theglitchking/babel-fish init`, the install script's `cp`
+  replaces the symlink with a regular copy — either way the skill is
+  discoverable.
+- **SessionStart hook** (`hooks/session-start.js`) checks npm for a
+  newer version at session start and acts per policy (off / nudge /
+  auto). Default is `nudge` — a one-liner notification, no automatic
+  changes.
+- **Slash + CLI subcommands:**
+  - `/babel-fish:update` / `babel-fish update`
+  - `/babel-fish:policy [auto|nudge|off]` / `babel-fish policy`
+  - `/babel-fish:status` / `babel-fish status`
+  - `/babel-fish:relink` / `babel-fish relink`
+
+### Opt-outs
+
+| Variable | Effect |
+|---|---|
+| `BABEL_FISH_UPDATE_POLICY` | One-shot policy override |
+| `BABEL_FISH_SKIP_LINK=1` | Skip skill symlinking in postinstall |
+| `BABEL_FISH_SKIP_HOOK_REGISTER=1` | Skip writing the SessionStart hook into `.claude/settings.json` |
+
+---
+
+## [1.0.2] and earlier
+
+See git history:
+https://github.com/TheGlitchKing/babel-fish/commits/main

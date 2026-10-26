@@ -1,0 +1,362 @@
+# babel-fish
+
+![babel-fish](babel.jpg)
+
+**Gives your AI coding assistant instant, accurate knowledge of every route, model, service, feature, and infrastructure element in your codebase.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Status: Production Ready](https://img.shields.io/badge/Status-Production%20Ready-green.svg)]()
+[![GitHub: TheGlitchKing/babel-fish](https://img.shields.io/badge/GitHub-TheGlitchKing%2Fbabel--fish-blue)](https://github.com/TheGlitchKing/babel-fish)
+
+> [!NOTE]
+> **Pairs with [`semantic-memory`](https://github.com/TheGlitchKing/semantic-sidekick) (formerly `semantic-sidekick`).** When both are installed, semantic-memory consumes babel-fish's auto-generated `.claude/project-map/` output as a `project-map` corpus AND reads the structured `glossary.json` babel-fish emits alongside it. That gives your AI a deterministic `translate("deals page") → "features/deal-pipeline/DealPipeline.tsx"` MCP verb instead of relying on semantic-search-luck. See [`.documentation/api/glossary-contract.md`](./.documentation/api/glossary-contract.md) for the producer/consumer data contract and [`.documentation/quickstart/integration-with-semantic-memory.md`](./.documentation/quickstart/integration-with-semantic-memory.md) for the setup walkthrough. babel-fish standalone behavior is unchanged — semantic-memory is purely additive.
+
+---
+
+## What Does This Do?
+
+Babel Fish creates a translation layer between a human and an LLM. It provides a natural feature-based conversation for the human, and a direct mapping to tools, targets, models, and file paths for the AI. Babel Fish auto-generates a living project map for your codebase and teaches your AI assistant your vocabulary — so you spend zero time re-explaining your project every session.
+
+| Without Babel Fish | With Babel Fish |
+|-------------------|-----------------|
+| "The deals page is at `features/deal-pipeline/DealPipeline.tsx`" | *Already mapped* |
+| AI scans 200 files to find a route | *Loads 1 section, 5KB* |
+| Stale context after a refactor | *Pre-commit hook auto-regenerates* |
+| Re-explain your stack every session | *Vocabulary auto-loaded on start* |
+| "Where is the background job for invoices?" | *Checks section 08 directly* |
+
+**In short:** Your AI assistant knows your codebase cold from the first message.
+
+---
+
+## What Gets Generated
+
+A 19-section project map, split into focused files so the AI loads only what's relevant per task:
+
+| Section | What It Contains |
+|---------|-----------------|
+| `01-vocabulary.md` | Plain-English → exact file path mapping |
+| `02-service-topology.md` | How your services connect |
+| `03-environment.md` | Env var names from env files and code (never values) |
+| `04-api-routes.md` | Every route with method, path, handler |
+| `05-data-models.md` | Models and their fields |
+| `06-schemas.md` | Validation schemas (Pydantic, Zod, etc.) |
+| `07-services.md` | Business logic layer |
+| `08-background-jobs.md` | Queues, workers, cron tasks |
+| `09-frontend-features.md` | Components and pages |
+| `10-tools-commands.md` | CLI commands and scripts |
+| `11-migrations.md` | Database migration history |
+| `12-import-chains.md` | Key import dependency trees |
+| `13-frontend-backend-map.md` | Which frontend calls which API |
+| `14-reverse-proxy.md` | Nginx/Caddy routing config |
+| `15-auth-config.md` | Auth strategy and guards |
+| `16-infra-profile.md` | Docker, Terraform, cloud config |
+| `17-learned-vocabulary.md` | Aliases mined from your sessions |
+| `18-dead-code.md` | Unused exports and orphaned files |
+| `19-doc-pointers.md` | Links to external docs |
+
+Plus:
+- **`PROJECT_MAP.md`** — TOC and quick routing guide (always loaded first)
+- **`project-vocabulary.md`** — auto-loaded every session
+- **`operational-runbook.md`** — gotchas and deploy procedures, grows over time
+- **Developer skill** — loads only the 2-3 sections relevant to your current task
+
+---
+
+## Install
+
+### Option 1: npx (recommended — no curl, verified by npm registry)
+
+```bash
+# Preview all changes before applying (nothing is modified)
+npx @theglitchking/babel-fish dry-run
+
+# Install
+npx @theglitchking/babel-fish init
+
+# Or target a specific project
+npx @theglitchking/babel-fish init /path/to/your/project
+```
+
+---
+
+### Option 2: Curl one-liner (checksum-verified)
+
+Always preview before running anything from the internet:
+
+```bash
+# Preview first — shows every file that will be created, nothing is modified
+curl -sSL https://raw.githubusercontent.com/TheGlitchKing/babel-fish/main/install.sh | bash -s -- --dry-run
+
+# Install
+curl -sSL https://raw.githubusercontent.com/TheGlitchKing/babel-fish/main/install.sh | bash
+
+# Or target a specific path
+curl -sSL https://raw.githubusercontent.com/TheGlitchKing/babel-fish/main/install.sh | bash -s -- /path/to/your/project
+```
+
+The remote installer verifies a SHA256 checksum against `checksums.json` before executing anything. If the file has been tampered with in transit, the installer aborts.
+
+---
+
+### Option 3: Via Glitch Kingdom Marketplace (Claude Code)
+
+Run these inside a Claude Code session:
+
+```
+/plugin marketplace add TheGlitchKing/glitch-kingdom-of-plugins
+/plugin install TheGlitchKing/babel-fish
+```
+
+> The first command registers the Glitch Kingdom marketplace. You only need to run it once — after that, `/plugin install` works for all Glitch Kingdom plugins.
+
+---
+
+### Option 4: Clone and run
+
+```bash
+git clone https://github.com/TheGlitchKing/babel-fish.git
+bash babel-fish/.claude/install.sh --dry-run /path/to/your/project  # preview first
+bash babel-fish/.claude/install.sh /path/to/your/project
+```
+
+---
+
+## Update management *(2.0.0+)*
+
+Every install ships with an update policy controlling what happens at session start when a newer version is available on npm. Default is `nudge` (one-liner notification, no automatic changes).
+
+```bash
+babel-fish status          # installed / latest / policy / hook state
+babel-fish policy auto     # auto-update on session start
+babel-fish policy nudge    # one-liner nudge only (default)
+babel-fish policy off      # silent
+babel-fish update          # update now
+```
+
+Slash-command parity: `/babel-fish:status`, `/babel-fish:policy <mode>`, `/babel-fish:update`, `/babel-fish:relink`.
+
+See [CHANGELOG.md](./CHANGELOG.md) for the full 2.0.0 release notes, breaking-change details, and env-var opt-outs.
+
+---
+
+## What the Installer Does
+
+1. Checks for Python ≥ 3.8 (installs if missing)
+2. Detects your stack (language, framework, database, ORM, auth, infra)
+3. Runs `generate.py` → grades with `grader.py` (iterates up to 3× until 90%+ quality)
+4. Renders your developer skill and rules files, including three standards rules written once (see [Standards Rules](#standards-rules))
+5. Installs the pre-commit hook (auto-regenerates map on source file changes; checks auto-loaded context when `CLAUDE.md` or `.claude/rules/` changes)
+6. Updates `CLAUDE.md` with a project map pointer
+7. Prints a full quality report
+
+---
+
+## Quality Grading
+
+Every install is graded 0–100% across 7 categories. Must score ≥ 90% to pass (up to 3 iterations):
+
+| Category | Weight | What It Checks |
+|----------|--------|----------------|
+| Section completeness | 25% | All 19 sections generated |
+| Vocabulary accuracy | 20% | Entries map to real files |
+| Import chain validity | 15% | Chains trace to real modules |
+| Secret safety | 15% | No API keys, passwords, or tokens leaked |
+| Section size bounds | 10% | Each section 0.1–50KB |
+| Structural integrity | 10% | Valid markdown, working TOC links |
+| Checksum functionality | 5% | Re-run skips when nothing changed |
+
+A full report is written to `.claude/project-map/reports/install-report.md`.
+
+---
+
+## Using the Developer Skill
+
+After install, a skill is available:
+
+```
+/<your-project-slug>-developer
+```
+
+It reads `PROJECT_MAP.md` and uses the Quick Routing table to load only the 2-3 sections relevant to your current task — typically 5–20KB of context instead of 100KB+.
+
+---
+
+## Keeping the Map Current
+
+The pre-commit hook regenerates the map automatically whenever source files change. To force a manual regeneration:
+
+```bash
+python .claude/project-map/generate.py --force
+```
+
+To re-grade the current output:
+
+```bash
+python .claude/project-map/grader.py
+```
+
+---
+
+## Learned Vocabulary
+
+Every AI session is mined for vocabulary. When you say "the numbers page" and the AI opens `DealAnalyzerV2.tsx`, that alias is recorded with a score (frequency × recency). Aliases with a score ≥ 5 appear in `17-learned-vocabulary.md`.
+
+Mining runs automatically at session start *(2.2.0+)*, detached and best-effort — it never delays or blocks a session. Only transcripts changed since the last run are read.
+
+Two things to expect:
+
+- **Aliases land one session late.** A session's transcript isn't written until it ends, so what you say today is mined at the *next* session start.
+- **Operational sessions mine little.** The miner learns feature nouns — "the deals page", "the billing workflow". A session spent on refactoring or releases contains few of those and will correctly yield nothing. See [learned vocabulary is empty](./.documentation/troubleshooting/learned-vocabulary-empty.md).
+
+Run the miner manually:
+
+```bash
+python .claude/project-map/mine-sessions.py
+```
+
+---
+
+## Operational Runbook
+
+`.claude/rules/operational-runbook.md` is loaded every session and grows over time. When you encounter a non-obvious operational issue, the developer skill prompts:
+
+> "This looks like operational knowledge worth documenting. Want me to add it to the runbook? (Y/n)"
+
+Entries follow a simple format: symptom → cause → fix. This is the anti-drift mechanism — knowledge that can't be derived from code lives here.
+
+---
+
+## Standards Rules
+
+`init` also writes five rules into `.claude/rules/`. Three load every session; `dependency-versions.md` and `docker-volumes.md` carry `paths:` frontmatter, so Claude Code loads them only when Claude works with a manifest, Dockerfile, compose file or CI workflow:
+
+| File | Says |
+|------|------|
+| `git-workflow.md` | Branch before any change; never push or merge the default branch without explicit permission; branch → PR → **wait**; sync the default branch at session start and after merges; never `--no-verify` |
+| `secrets-management.md` | No hardcoded URLs, passwords, keys, tokens or connection strings; all of them go in the root `.env` (or wherever the repo already keeps it, e.g. `structure.toml`'s `env_file`); only `.env.example` is committed |
+| `dependency-versions.md` | Latest stable version of everything (newest LTS where one exists), looked up, not remembered; the only exception is a version that was tried and failed, pinned with a recorded reason |
+| `docker-volumes.md` | Named volumes for anything a container stores; never anonymous volumes; a bind mount only when a host path is required (entrypoint/init scripts, host-provided config or certs, dev live reload, sockets), commented and `:ro`; never `down -v` / `volume rm` / `prune` without permission; Docker files under `infra/compose/` and `infra/docker/<service>/` |
+| `repo-structure.md` | Decide where a file belongs before creating it: follow `.claude/structure.toml` when there is one; otherwise suggest setting one up (`--detect`, `structure-bootstrap`) and use the default layout for anything the repo has no place for; no catch-all folders |
+
+Each is written **once** and then belongs to the repo: re-running the installer never overwrites it. A rule is skipped entirely when the repo already has one on the same topic (an existing `secrets.md` means no `secrets-management.md`). The default branch is read from `origin/HEAD`, falling back to `main` (or `master` when that is the only branch).
+
+---
+
+## Auto-loaded Context Check *(2.5.0+)*
+
+Everything in `CLAUDE.md` and `.claude/rules/` loads into every session, and past Claude Code's 150k-char limit rules stop binding silently. When those files are staged, the pre-commit hook runs `context-check.py` and blocks the commit if:
+
+- the total exceeds the budget (default 60,000 chars), or
+- a pointer names a file that doesn't exist. hewtd only link-checks inside `.documentation/`, so a renamed doc breaks a rule's pointer unnoticed.
+
+Opt in to `--map-style` to also require every rule bullet to read `` - ALWAYS|NEVER <rule> — <why> → `doc` ``. See [auto-loaded context check](./.documentation/standards/auto-loaded-context-check.md).
+
+```bash
+python .claude/project-map/context-check.py --budget 80000 --map-style
+```
+
+---
+
+## Repo Structure Check *(2.6.0+)*
+
+The map shows where things **are**. An opt-in `.claude/structure.toml` says where they **should go**, and `structure-check.py` blocks the commit (and fails CI) when a file lands somewhere else.
+
+- **Folders with a lifecycle:** each approved folder has a purpose, optional `holds` globs, and a status of `planned`, `active` or `deprecated`. A deprecated folder takes no new files while the old ones move out.
+- **dev → stg → prod:** declared environments must stay separate:
+  - stg holds the same files as prod
+  - environment folders hold only what differs
+  - local tooling stays out of the cloud environments, and deploy config out of local ones
+  - migrations are shared across environments
+  - a real `.env` is never committed
+- **One `.env`, not twenty:** a single committed `.env.example` holds every key for every environment and app, and the one real `.env` sits beside it, gitignored. Stray templates, per-app `.env` files and a `.env` that git would commit all get caught.
+- **Modes:** `single`, `monorepo`, or `multi-repo`. In multi-repo, `[[repo]]` entries point at sibling repos, each running its own babel-fish.
+- **Adoption blocks nothing:** `--bootstrap` seeds an `exceptions` baseline from today's tree, so only *new* violations fail.
+
+```bash
+python .claude/project-map/structure-check.py --detect                      # mode, environments, folders
+python .claude/project-map/structure-check.py --bootstrap --layout monorepo # start a manifest (never overwrites)
+python .claude/project-map/structure-check.py --since origin/main           # CI
+```
+
+Or ask Claude to *"set up the repo structure"*. The `structure-bootstrap` skill reads the tree, fills in each folder's purpose, can plan a new repo from a description, and asks only what it can't infer. Needs Python 3.11+ (on older Python it warns and passes). See [repo structure check](./.documentation/standards/repo-structure-check.md) and [changing repo structure](./.documentation/procedures/changing-repo-structure.md).
+
+---
+
+## File Structure
+
+```
+.claude/
+├── project-map/
+│   ├── generate.py              # Introspection script
+│   ├── grader.py                # Quality grader
+│   ├── mine-sessions.py         # Session vocabulary miner
+│   ├── context-check.py         # Budget + pointer check for auto-loaded files
+│   ├── structure-check.py       # Files vs .claude/structure.toml (opt-in)
+│   ├── PROJECT_MAP.md           # TOC + quick routing guide
+│   ├── sections/                # 19 focused section files
+│   ├── reports/                 # Install and iteration reports
+│   ├── checksums.json           # Skip regeneration if unchanged
+│   └── learned-vocabulary.json  # Persisted session aliases
+├── structure.toml               # Your repo's structure manifest (you own it; never overwritten)
+├── templates/structure/         # Layouts: single, monorepo, multi-repo
+├── rules/
+│   ├── project-vocabulary.md    # Auto-loaded every session
+│   ├── operational-runbook.md   # Auto-loaded every session
+│   ├── git-workflow.md          # Standards rules: written once, yours to edit
+│   ├── secrets-management.md
+│   ├── dependency-versions.md
+│   ├── docker-volumes.md
+│   └── repo-structure.md
+└── skills/
+    └── <project>-developer-skill/
+        └── SKILL.md
+.githooks/
+├── pre-commit                   # Regenerates map; runs the context + structure checks
+└── install.sh                   # Register hooks: bash .githooks/install.sh
+```
+
+---
+
+## Supported Stacks
+
+| Language | Frameworks |
+|----------|-----------|
+| Python | FastAPI, Django, Flask |
+| TypeScript / JavaScript | Next.js, NestJS, Express, React, Vue, Svelte |
+| Go | Gin, Echo, Chi, stdlib |
+| Java | Spring Boot |
+| Any | docker-compose, nginx, Caddy, Terraform, Prisma, SQLAlchemy, TypeORM |
+
+---
+
+## Requirements
+
+- AI coding assistant (Claude Code, Cursor, or compatible)
+- Python ≥ 3.8 (auto-installed if missing); the structure check needs ≥ 3.11
+- Bash
+- Optional: `pip install pyyaml` for docker-compose YAML parsing (regex fallback included)
+
+---
+
+## Commands
+
+| Command | What It Does |
+|---------|-------------|
+| `python .claude/project-map/generate.py --force` | Force-regenerate project map |
+| `python .claude/project-map/grader.py` | Grade map quality (0–100%) |
+| `python .claude/project-map/mine-sessions.py` | Mine session vocabulary |
+| `python .claude/project-map/context-check.py` | Check auto-loaded context: budget, pointers |
+| `python .claude/project-map/structure-check.py` | Check files against `.claude/structure.toml` (`--detect`, `--bootstrap`) |
+| `bash .githooks/install.sh` | (Re)install git hooks |
+| `bash .claude/install.sh` | Re-run full plugin installer |
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE)
+
+---
+
+**Made by [TheGlitchKing](https://github.com/TheGlitchKing)**
