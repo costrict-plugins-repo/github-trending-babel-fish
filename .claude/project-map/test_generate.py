@@ -1,0 +1,382 @@
+#!/usr/bin/env python3
+"""Regression tests for generate.py — run: python3 .claude/project-map/test_generate.py
+
+Stdlib assert + __main__, no pytest, no fixtures (ponytail: the repo has no test
+framework and this doesn't justify adding one).
+
+These exist because grader.py cannot catch what they catch: it scored the
+completely empty pre-#6 map at 97.0% PASS, identical to the populated map, since
+"Vocabulary Accuracy" reads 100% on zero entries. The grader measures
+well-formedness; these measure usefulness.
+"""
+from __future__ import annotations
+
+import importlib.util
+import pathlib
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).parent
+
+
+def load_generate(project_root: Path):
+    """Fresh module instance bound to project_root."""
+    spec = importlib.util.spec_from_file_location("gen_under_test", HERE / "generate.py")
+    mod = importlib.util.module_from_spec(spec)
+    argv, sys.argv = sys.argv, ["generate.py"]
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.argv = argv
+    # configure_paths(), not `mod.PROJECT_ROOT = ...`: generate.py binds MAP_DIR,
+    # SECTIONS_DIR, CHECKSUMS, LEARNED_VOC and GLOSSARY at import time from
+    # __file__, and rebinds them only here. Setting PROJECT_ROOT alone left every
+    # output path aimed at the real repo, so the suite overwrote its own
+    # glossary.json with fixture data and still passed (#18).
+    mod.configure_paths(project_root)
+    return mod
+
+
+def make_plugin_repo(root: Path) -> None:
+    """The repo shape from #6: markdown skills, slash commands, bash, node shim."""
+    (root / "skills/demo-skill").mkdir(parents=True)
+    (root / "skills/demo-skill/SKILL.md").write_text(
+        "---\nname: demo-skill\ndescription: |\n"
+        "  Does the demo thing.\n  Second line of the block scalar.\n---\n\n# Demo\n"
+    )
+    (root / "commands").mkdir()
+    (root / "commands/deploy.md").write_text(
+        "---\ndescription: Ship it to production\nallowed-tools: Bash(npx:*)\n---\n\nRun the deploy.\n"
+    )
+    (root / "install.sh").write_text("#!/usr/bin/env bash\necho hi\n")
+    (root / "package.json").write_text('{"name":"demo","scripts":{"build":"tsc"}}\n')
+    # A docs tree whose paths must NOT be mistaken for command manifests.
+    (root / ".documentation/reference/commands").mkdir(parents=True)
+    (root / ".documentation/reference/commands/cli.md").write_text("---\ntitle: CLI\n---\n\nprose\n")
+    (root / ".documentation/api").mkdir(parents=True)
+    (root / ".documentation/api/contract.md").write_text("---\ntitle: Contract\n---\n\nprose\n")
+    (root / ".documentation/api/INDEX.md").write_text("---\ntitle: Index\n---\n\nnav\n")
+    (root / ".documentation/reports").mkdir(parents=True)
+    (root / ".documentation/reports/maintenance-2026-09-04T18-32-22.md").write_text(
+        "---\ntitle: Maintenance Report\n---\n\ngenerated\n"
+    )
+    (root / ".documentation/archive").mkdir(parents=True)
+    (root / ".documentation/archive/old.md").write_text("---\ntitle: Old\n---\n\nretired\n")
+    (root / "README.md").write_text("# demo\n")
+
+
+def checksum(g):
+    return g.compute_checksum(g.collect_watched_files(), g.collect_doc_files())
+
+
+def rel(g, paths):
+    return {str(p.relative_to(g.PROJECT_ROOT)) for p in paths}
+
+
+# ── Watch set ────────────────────────────────────────────────────────────────
+
+def test_manifests_are_watched(g):
+    watched = rel(g, g.collect_watched_files())
+    assert "skills/demo-skill/SKILL.md" in watched, watched
+    assert "commands/deploy.md" in watched, watched
+    assert "install.sh" in watched, "issue #6: .sh was unwatched, so section 10 never refreshed"
+
+
+def test_globs_anchor_at_repo_root(g):
+    """The whole reason for fnmatch-on-relative-path instead of adding '.md'."""
+    watched = rel(g, g.collect_watched_files())
+    assert ".documentation/reference/commands/cli.md" not in watched, (
+        "a docs tree named commands/ leaked into the watch set — glob is not anchored"
+    )
+    assert not any(w.startswith(".documentation/") for w in watched), watched
+
+
+def test_editing_a_skill_moves_the_checksum(g):
+    """The #6 blocker: this was bit-identical before the fix."""
+    before = checksum(g)
+    p = g.PROJECT_ROOT / "skills/demo-skill/SKILL.md"
+    p.write_text(p.read_text() + "\nmore\n")
+    assert checksum(g) != before, "editing SKILL.md left the checksum unchanged"
+
+
+# ── Doc pointers ─────────────────────────────────────────────────────────────
+
+def test_adding_a_doc_moves_checksum_editing_one_does_not(g):
+    before = checksum(g)
+    newdoc = g.PROJECT_ROOT / ".documentation/api/added.md"
+    newdoc.write_text("---\ntitle: Added\n---\n\nbody\n")
+    after_add = checksum(g)
+    assert after_add != before, "adding a doc must refresh section 19"
+
+    newdoc.write_text("---\ntitle: Added\n---\n\nbody, substantially rewritten\n")
+    assert checksum(g) == after_add, "editing a doc body must NOT churn the whole map"
+
+    newdoc.unlink()
+    assert checksum(g) == before, "deleting a doc must refresh section 19"
+
+
+def test_doc_pointers_exclude_nav_and_archive(g):
+    docs = rel(g, g.collect_doc_files())
+    assert ".documentation/api/contract.md" in docs, docs
+    assert "README.md" in docs, "section 19's root *.md glob must be covered"
+    assert ".documentation/api/INDEX.md" not in docs, "hewtd nav crowds out real docs"
+    assert ".documentation/archive/old.md" not in docs, "archived docs are not pointers"
+    assert not any("/reports/" in d for d in docs), (
+        "generated reports must not be listed: each run writes a new timestamped "
+        "filename, which would move the checksum and force a full regeneration"
+    )
+
+
+# ── SkillParser ──────────────────────────────────────────────────────────────
+
+def _parsed(g):
+    return {m["name"]: m for m in g.SkillParser().parse()}
+
+
+def test_skill_and_command_parsed(g):
+    got = _parsed(g)
+    assert "demo-skill" in got, got
+    assert "deploy" in got, "commands/*.md carry no 'name:' — it comes from the filename"
+    assert got["demo-skill"]["kind"] == "skill"
+    assert got["deploy"]["kind"] == "command"
+    assert "Second line" in got["demo-skill"]["description"], "block scalar not joined"
+    assert got["deploy"]["description"] == "Ship it to production"
+
+
+def test_regex_fallback_matches_yaml(g):
+    """babel-fish only suggests pyyaml, so the fallback is the common path."""
+    if not g.HAS_YAML:
+        return  # nothing to compare against
+    with_yaml = _parsed(g)
+    g.HAS_YAML = False
+    try:
+        without = _parsed(g)
+    finally:
+        g.HAS_YAML = True
+    assert set(with_yaml) == set(without), (set(with_yaml), set(without))
+    for k in with_yaml:
+        assert with_yaml[k]["description"] == without[k]["description"], k
+
+
+# ── End to end ───────────────────────────────────────────────────────────────
+
+def test_plugin_repo_map_is_not_empty(g):
+    """The test that fails if #6 regresses."""
+    skills = g.SkillParser().parse()
+    vocab = g.VocabularyBuilder().build([], [], [], [], g.load_stack(), skills)
+    aliases = {v["alias"] for v in vocab}
+    assert aliases, "a plugin repo produced an empty vocabulary — issue #6"
+    assert "demo skill" in aliases or "demo-skill" in aliases, aliases
+    assert "/deploy" in aliases, "commands should be reachable as /name"
+    assert "deploy" in aliases, "...and as a bare word"
+
+    tools = {t["name"] for t in g.ToolsScanner().scan()}
+    assert "/deploy" in tools, tools
+
+    section = g.build_vocabulary_section(vocab)
+    assert "no vocabulary generated yet" not in section, "section 01 still renders the stub"
+
+
+# ── Structure pointer (#22) ──────────────────────────────────────────────────
+
+def test_structure_pointer_only_with_a_manifest(g):
+    assert g.build_structure_pointer() == []
+    (g.PROJECT_ROOT / ".claude").mkdir(exist_ok=True)
+    (g.PROJECT_ROOT / ".claude/structure.toml").write_text(
+        'mode = "multi-repo"\n\n[[repo]]\nname = "api"\npath = "../api"\npurpose = "Backend"\n')
+    text = "\n".join(g.build_structure_pointer())
+    assert "`.claude/structure.toml`" in text, text
+    if sys.version_info >= (3, 11):
+        assert "**api** `../api` — Backend" in text, text
+
+
+# ── Glossary side-channel (#10) ──────────────────────────────────────────────
+
+def test_glossary_json_written_and_shaped(g):
+    """Consumers read this instead of parsing the markdown table."""
+    import json
+    skills = g.SkillParser().parse()
+    vocab = g.VocabularyBuilder().build([], [], [], [], g.load_stack(), skills)
+    path = g.write_glossary(vocab, g.load_stack())
+    assert path.exists(), "glossary.json not written"
+    data = json.loads(path.read_text())
+
+    for field in ("schema_version", "generated_at", "source", "project",
+                  "entry_count", "entries"):
+        assert field in data, f"missing {field}: {sorted(data)}"
+    assert data["entry_count"] == len(data["entries"])
+    assert data["schema_version"].count(".") == 1, data["schema_version"]
+
+    for e in data["entries"]:
+        assert set(e) == {"key", "canonical_path", "section", "description"}, e
+        assert e["key"], e
+    keys = [e["key"] for e in data["entries"]]
+    assert keys == sorted(keys), "entries must be sorted by key"
+    assert len(keys) == len(set(keys)), "keys must be unique"
+
+
+def test_glossary_source_path_is_real(g):
+    """v1.0 of the contract named `.babel-fish/`, which was never written."""
+    import json
+    data = json.loads(g.write_glossary([], g.load_stack()).read_text())
+    assert ".babel-fish" not in data["source"], data["source"]
+    assert data["source"].endswith("01-vocabulary.md"), data["source"]
+    assert pathlib.PurePath(data["source"]).parent.name == "sections", data["source"]
+
+
+def test_glossary_values_are_unescaped(g):
+    """The markdown table escapes pipes into values (`auto \\| nudge`). JSON
+    must carry the real string — that escaping is the clearest reason not to
+    parse the rendered table."""
+    import json
+    vocab = [{"alias": "policy", "type": "command", "location": "commands/policy.md",
+              "notes": "Get or set the policy (auto | nudge | off)"}]
+    data = json.loads(g.write_glossary(vocab, g.load_stack()).read_text())
+    assert data["entries"][0]["description"] == "Get or set the policy (auto | nudge | off)"
+    assert "\\|" not in data["entries"][0]["description"]
+
+
+def test_empty_glossary_is_valid(g):
+    """An empty vocabulary is a valid glossary, not an error."""
+    import json
+    data = json.loads(g.write_glossary([], g.load_stack()).read_text())
+    assert data["entries"] == [] and data["entry_count"] == 0
+
+
+def test_glossary_survives_foreign_project_root(g):
+    """SECTIONS_DIR is bound to the script location, which is NOT under
+    PROJECT_ROOT when --project-root points elsewhere. That combination raised
+    ValueError from relative_to()."""
+    import json
+    # Recreate the mismatch explicitly. It used to arrive for free because the
+    # loader left SECTIONS_DIR pointing at the script dir — the same leak that
+    # let this test write into the real repo (#18).
+    g.SECTIONS_DIR = HERE / "sections"
+    g.write_glossary([], g.load_stack())
+    data = json.loads(g.GLOSSARY.read_text())
+    assert data["source"].endswith("01-vocabulary.md"), data["source"]
+
+
+# ── --project-root write path (#15) ──────────────────────────────────────────
+
+def test_project_root_relocates_every_output(g):
+    """--project-root used to move only the READ root: the map was written back
+    into the script's own directory, so the target got nothing and the script
+    repo's map was destroyed."""
+    target = g.PROJECT_ROOT / "elsewhere"
+    (target / "src").mkdir(parents=True)
+    (target / "src" / "app.py").write_text("# app\n")
+
+    script_owned = g.MAP_DIR
+    g.configure_paths(target)
+
+    assert g.PROJECT_ROOT == target
+    for name in ("MAP_DIR", "SECTIONS_DIR", "CHECKSUMS", "LEARNED_VOC", "GLOSSARY"):
+        p = getattr(g, name)
+        assert str(p).startswith(str(target)), f"{name} still outside the target: {p}"
+        assert not str(p).startswith(str(script_owned)), f"{name} still in the script dir: {p}"
+    assert g.SECTIONS_DIR.is_dir(), "sections dir not created under the target"
+
+
+def test_project_root_writes_land_in_the_target(g):
+    import json
+    target = g.PROJECT_ROOT / "elsewhere"
+    target.mkdir(parents=True)
+    g.configure_paths(target)
+    g.write_glossary([{"alias": "x", "type": "feature",
+                       "location": "src/x.py", "notes": "n"}], g.load_stack())
+    written = target / ".claude" / "project-map" / "glossary.json"
+    assert written.exists(), "glossary.json was not written under the target"
+    assert json.loads(written.read_text())["entry_count"] == 1
+
+
+# ── secrets never reach the map ──────────────────────────────────────────────
+
+PLANTED = ["hunter2pw", "abc123def456", "XXXXsecretXXXX", "sk_live_51Habcdefghijklmnop",
+           "pw0rd", "examplevalue"]
+
+
+def test_no_secret_reaches_any_output(g):
+    """Section 03 copied real .env values whose KEY looked harmless (DATABASE_URL,
+    *_DSN, *_WEBHOOK_URL), and redact_secrets() was never called. The grader
+    scored that map 100% on Secret Safety."""
+    import subprocess
+    root = g.PROJECT_ROOT
+    (root / ".env").write_text(
+        "DATABASE_URL=postgres://admin:hunter2pw@db.internal:5432/app\n"
+        "SENTRY_DSN=https://abc123def456@o1.ingest.sentry.io/1\n"
+        "SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T000/B000/XXXXsecretXXXX\n"
+        "export STRIPE_SK=sk_live_51Habcdefghijklmnop\n"
+    )
+    (root / ".env.example").write_text("PUBLIC_NAME=examplevalue\n")  # no values at all, even here
+    (root / "conf").mkdir()
+    (root / "conf/site.conf").write_text("server { location /api { proxy_pass http://svc:pw0rd@backend:8000; } }\n")
+    (root / "app.py").write_text('import os\nREDIS = os.getenv("REDIS_URL")\n')
+    r = subprocess.run([sys.executable, str(HERE / "generate.py"), "--force", "--project-root", str(root)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+    out = root / ".claude" / "project-map"
+    for f in (p for p in out.rglob("*") if p.is_file()):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        for s in PLANTED:
+            assert s not in text, f"{s!r} leaked into {f.relative_to(root)}"
+    env = (out / "sections" / "03-environment.md").read_text()
+    for key in ("DATABASE_URL", "SENTRY_DSN", "SLACK_WEBHOOK_URL", "STRIPE_SK", "PUBLIC_NAME", "REDIS_URL"):
+        assert f"`{key}`" in env, f"{key} missing from section 03:\n{env}"
+
+
+def test_env_keys_come_from_code_without_an_env_file(g):
+    (g.PROJECT_ROOT / "server.ts").write_text("const u = process.env.API_URL; const k = process.env['API_KEY'];\n")
+    (g.PROJECT_ROOT / "main.go").write_text('package main\nvar p = os.Getenv("PORT")\n')
+    keys = {e["key"]: e["sources"] for e in g.EnvParser().parse()}
+    assert keys == {"API_URL": ["server.ts"], "API_KEY": ["server.ts"], "PORT": ["main.go"]}, keys
+
+
+def test_env_keys_follow_structure_env_file(g):
+    root = g.PROJECT_ROOT
+    (root / ".claude").mkdir(exist_ok=True)
+    (root / ".claude/structure.toml").write_text('env_file = "apps/api/.env.example"\n')
+    (root / "apps/api").mkdir(parents=True)
+    (root / "apps/api/.env.example").write_text("# comment\nAPI_BASE_URL=\n")
+    keys = {e["key"]: e["sources"] for e in g.EnvParser().parse()}
+    assert keys == {"API_BASE_URL": ["apps/api/.env.example"]}, keys
+
+
+def test_redact_secrets_keeps_the_shape(g):
+    assert g.redact_secrets("postgres://u:p@h/db") == "postgres://[REDACTED]@h/db"
+    assert g.redact_secrets("| `/api` | `http://backend:8000` |") == "| `/api` | `http://backend:8000` |"
+    assert g.redact_secrets("| `password=hunter2` |") == "| `[REDACTED]` |"
+    for token in ("ghp_" + "a" * 36, "xoxb-1234567890-abc", "AKIA" + "A" * 16, "sk-ant-" + "b" * 20):
+        assert g.redact_secrets(f"x {token} y") == "x [REDACTED] y", token
+
+
+def main() -> int:
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+    failed = []
+    tmp = Path(tempfile.mkdtemp(prefix="babelfish-test-"))
+    try:
+        for fn in tests:
+            root = tmp / fn.__name__
+            root.mkdir()
+            make_plugin_repo(root)
+            g = load_generate(root)
+            try:
+                fn(g)
+                print(f"  ok   {fn.__name__}")
+            except Exception as e:
+                # Exception, not just AssertionError: against an older
+                # generate.py the new helpers are simply absent, and that
+                # should read as a failing test, not abort the whole run.
+                failed.append((fn.__name__, e))
+                print(f"  FAIL {fn.__name__}: {type(e).__name__}: {e}")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print(f"\n{len(tests) - len(failed)}/{len(tests)} passed")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
